@@ -15,7 +15,7 @@ public interface IExcelFileProcessor : IDisposable
     void DuplicateFile(string sourceFile, string outputFile);
 }
 
-public class NpoiExcelFileProcessor : IExcelFileProcessor
+    public class NpoiExcelFileProcessor : IExcelFileProcessor
 {
     private bool _disposed = false;
 
@@ -31,7 +31,6 @@ public class NpoiExcelFileProcessor : IExcelFileProcessor
             using (var inputStream = File.OpenRead(sourceFile))
             using (var outputStream = File.Create(outputFile))
             {
-                // Используем XSSFWorkbook для обработки файлов .xlsx
                 IWorkbook workbook = new XSSFWorkbook(inputStream);
                 workbook.Write(outputStream);
             }
@@ -52,7 +51,6 @@ public class NpoiExcelFileProcessor : IExcelFileProcessor
         {
             if (disposing)
             {
-                // Освобождение управляемых ресурсов, если необходимо
             }
             _disposed = true;
         }
@@ -77,112 +75,136 @@ public class ExcelProcessingException : Exception
 
 public class Model
 {
-    public int Number { get; set; }
+    public string id { get; set; }
+
 }
 
-public class ExcelDuplicator : IDisposable
+public class FileHanlder
 {
-    private readonly IExcelFileProcessor _excelProcessor;
-    private bool _disposed = false;
+    public string filePath;
 
-    public ExcelDuplicator(IExcelFileProcessor excelProcessor)
+    public FileHanlder(string FactoryNumber)
     {
-        _excelProcessor = excelProcessor ?? throw new ArgumentNullException(nameof(excelProcessor));
+        filePath = FactoryNumber;
     }
 
-    public void Duplicate(IEnumerable<Model> models, string sourceFile, string outputFile)
+    public string ReadFromFile()
     {
-        ValidateInput(sourceFile, outputFile);
-
-        var errors = new List<string>();
-        try
+        if (!File.Exists(filePath))
         {
-            foreach (var model in models)
+            throw new FileNotFoundException("Файл не найден.", filePath);
+        }
+
+        return File.ReadAllText(filePath);
+    }
+
+    public class ExcelDuplicator : IDisposable
+    {
+        private readonly IExcelFileProcessor _excelProcessor;
+        private bool _disposed = false;
+
+        public ExcelDuplicator(IExcelFileProcessor excelProcessor)
+        {
+            _excelProcessor = excelProcessor ?? throw new ArgumentNullException(nameof(excelProcessor));
+        }
+
+        public void Duplicate(IEnumerable<Model> models, string sourceFile, string outputFile)
+        {
+            ValidateInput(sourceFile, outputFile);
+            string FactoryNumber = "Data\\FactoryNumberList.txt";
+
+
+            var errors = new List<string>();
+            try
             {
-                var OutputFile = Path.Combine(Path.GetDirectoryName(outputFile), $"{model.Number}.xlsx");
-                _excelProcessor.DuplicateFile(sourceFile, OutputFile);
-                Console.WriteLine($"Файл '{OutputFile}' создан.");
-            }
-        }
-        catch (Exception ex)
-        {
-            errors.Add($"Ошибка создания файла: {ex.Message}");
-        }
-
-        if (errors.Any())
-        {
-            Console.WriteLine("\nОшибка:");
-            errors.ForEach(Console.WriteLine);
-        }
-    }
-
-    private void ValidateInput(string sourceFile, string outputFile)
-    {
-        if (string.IsNullOrWhiteSpace(sourceFile)) throw new ArgumentNullException(nameof(sourceFile));
-        if (string.IsNullOrWhiteSpace(outputFile)) throw new ArgumentNullException(nameof(outputFile));
-        if (!File.Exists(sourceFile)) throw new FileNotFoundException("Инпутного файла не существует.", sourceFile);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed)
-        {
-            if (disposing)
-            {
-                _excelProcessor?.Dispose();
-            }
-            _disposed = true;
-        }
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    ~ExcelDuplicator()
-    {
-        Dispose(false);
-    }
-}
-
-public class Program
-{
-    [STAThread]
-    public static void Main(string[] args)
-    {
-        string sourceFile = "Data\\input.xlsx"; // Путь к вашему входному файлу
-
-        using (var saveFileDialog = new SaveFileDialog())
-        {
-            saveFileDialog.Filter = "Excel файлы (*.xlsx)|*.xlsx";
-            saveFileDialog.Title = "Сохранить файл как";
-            saveFileDialog.FileName = "output.xlsx"; // Имя по умолчанию
-
-            if (saveFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                string outputFile = saveFileDialog.FileName;
-
-                var models = new List<Model> { new Model { Number = 1 }, new Model { Number = 2 }, new Model { Number = 3 } };
-
-                try
+                foreach (var model in models)
                 {
-                    using (var processor = new NpoiExcelFileProcessor())
-                    using (var duplicator = new ExcelDuplicator(processor))
+                    var OutputFile = Path.Combine(Path.GetDirectoryName(outputFile), $"[{FileHanlder(FactoryNumber)}]-[{DateTime.Now.ToString("dd-MM-yyyy HH-mm-ss")}]Климатическое испытание.xlsx");
+                    _excelProcessor.DuplicateFile(sourceFile, OutputFile);
+                    Console.WriteLine($"Файл '{OutputFile}' создан.");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Ошибка создания файла: {ex.Message}");
+            }
+
+            if (errors.Any())
+            {
+                Console.WriteLine("\nОшибка:");
+                errors.ForEach(Console.WriteLine);
+            }
+        }
+
+        private void ValidateInput(string sourceFile, string outputFile)
+        {
+            if (string.IsNullOrWhiteSpace(sourceFile)) throw new ArgumentNullException(nameof(sourceFile));
+            if (string.IsNullOrWhiteSpace(outputFile)) throw new ArgumentNullException(nameof(outputFile));
+            if (!File.Exists(sourceFile)) throw new FileNotFoundException("Инпутного файла не существует.", sourceFile);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    _excelProcessor?.Dispose();
+                }
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~ExcelDuplicator()
+        {
+            Dispose(false);
+        }
+    }
+
+    public class Program
+    {
+        [STAThread]
+        public static void Main(string[] args)
+        {
+            string sourceFile = "Data\\input.xlsx"; // Путь к вашему входному файлу
+
+            using (var saveFileDialog = new SaveFileDialog())
+            {
+                saveFileDialog.Filter = "Excel файлы (*.xlsx)|*.xlsx";
+                saveFileDialog.Title = "Сохранить файл как";
+                saveFileDialog.FileName = "output.xlsx"; // Имя по умолчанию
+
+                if (saveFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string outputFile = saveFileDialog.FileName;
+
+                    var models = new List<Model> { new Model { id = "SDSDDS" } };
+
+                    try
                     {
-                        duplicator.Duplicate(models, sourceFile, outputFile);
+                        using (var processor = new NpoiExcelFileProcessor())
+                        using (var duplicator = new ExcelDuplicator(processor))
+                        {
+                            duplicator.Duplicate(models, sourceFile, outputFile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Фатальная ошибка: {ex.Message}");
                     }
                 }
-                catch (Exception ex)
+                else
                 {
-                    Console.WriteLine($"Фатальная ошибка: {ex.Message}");
+                    Console.WriteLine("Выбор файла отменен.");
                 }
-            }
-            else
-            {
-                Console.WriteLine("Выбор файла отменен.");
             }
         }
     }
 }
+
