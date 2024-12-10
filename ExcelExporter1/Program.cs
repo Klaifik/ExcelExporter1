@@ -1,24 +1,24 @@
 ﻿using Microsoft.Win32;
-using NPOI.HSSF.UserModel;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
+using NPOI.HSSF.UserModel;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
 public interface IExcelFileProcessor : IDisposable
 {
-    void DuplicateFile(string sourceFile, string destinationFile);
+    void DuplicateFile(string sourceFile, string outputFile);
 }
 
 public class NpoiExcelFileProcessor : IExcelFileProcessor
 {
     private bool _disposed = false;
-    private Stream inputStream;
 
-    public void DuplicateFile(string sourceFile, string destinationFile)
+    public void DuplicateFile(string sourceFile, string outputFile)
     {
         if (!File.Exists(sourceFile))
         {
@@ -27,16 +27,17 @@ public class NpoiExcelFileProcessor : IExcelFileProcessor
 
         try
         {
-            var workbook = WorkbookFactory.Create(inputStream);
             using (var inputStream = File.OpenRead(sourceFile))
-            using (var outputStream = File.Create(destinationFile))
+            using (var outputStream = File.Create(outputFile))
             {
+                // Используем XSSFWorkbook для обработки файлов .xlsx
+                IWorkbook workbook = new XSSFWorkbook(inputStream);
                 workbook.Write(outputStream);
             }
         }
         catch (IOException ex)
         {
-            throw new ExcelProcessingException($"Ошибка: {ex.Message}", ex);
+            throw new ExcelProcessingException($"Ошибка ввода-вывода: {ex.Message}", ex);
         }
         catch (Exception ex)
         {
@@ -50,10 +51,7 @@ public class NpoiExcelFileProcessor : IExcelFileProcessor
         {
             if (disposing)
             {
-                if (inputStream != null)
-                {
-                    inputStream.Dispose();
-                }
+                // Освобождение управляемых ресурсов, если необходимо
             }
             _disposed = true;
         }
@@ -84,32 +82,30 @@ public class Model
 public class ExcelDuplicator : IDisposable
 {
     private readonly IExcelFileProcessor _excelProcessor;
-    private bool _disposed = true;
+    private bool _disposed = false;
 
     public ExcelDuplicator(IExcelFileProcessor excelProcessor)
     {
-        _excelProcessor = excelProcessor;
+        _excelProcessor = excelProcessor ?? throw new ArgumentNullException(nameof(excelProcessor));
     }
 
-    public void Duplicate(IEnumerable<Model> models, string inputFile, string outputDirectory)
+    public void Duplicate(IEnumerable<Model> models, string sourceFile, string outputFile)
     {
-        ValidateInput(inputFile, outputDirectory);
-
-        Directory.CreateDirectory(outputDirectory);
+        ValidateInput(sourceFile, outputFile);
 
         var errors = new List<string>();
-        foreach (var model in models)
+        try
         {
-            var outputFile = Path.Combine(outputDirectory, $"{model.Number}.xlsx");
-            try
+            foreach (var model in models)
             {
-                _excelProcessor.DuplicateFile(inputFile, outputFile);
-                Console.WriteLine($"Файл '{outputFile}' Создан.");
+                var OutputFile = Path.Combine(Path.GetDirectoryName(outputFile), $"{model.Number}.xlsx");
+                _excelProcessor.DuplicateFile(sourceFile, OutputFile);
+                Console.WriteLine($"Файл '{OutputFile}' создан.");
             }
-            catch (Exception ex)
-            {
-                errors.Add($"Ошибка создания файла '{outputFile}': {ex.Message}");
-            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Ошибка создания файла: {ex.Message}");
         }
 
         if (errors.Any())
@@ -119,20 +115,20 @@ public class ExcelDuplicator : IDisposable
         }
     }
 
-    private void ValidateInput(string inputFile, string outputDirectory)
+    private void ValidateInput(string sourceFile, string outputFile)
     {
-        if (string.IsNullOrWhiteSpace(inputFile)) throw new ArgumentNullException(nameof(inputFile));
-        if (string.IsNullOrWhiteSpace(outputDirectory)) throw new ArgumentNullException(nameof(outputDirectory));
-        if (!File.Exists(inputFile)) throw new FileNotFoundException("Инпутного файла не существует.", inputFile);
+        if (string.IsNullOrWhiteSpace(sourceFile)) throw new ArgumentNullException(nameof(sourceFile));
+        if (string.IsNullOrWhiteSpace(outputFile)) throw new ArgumentNullException(nameof(outputFile));
+        if (!File.Exists(sourceFile)) throw new FileNotFoundException("Инпутного файла не существует.", sourceFile);
     }
 
     protected virtual void Dispose(bool disposing)
     {
         if (!_disposed)
         {
-            if (disposing && _excelProcessor != null)
+            if (disposing)
             {
-                _excelProcessor.Dispose();
+                _excelProcessor?.Dispose();
             }
             _disposed = true;
         }
@@ -155,32 +151,36 @@ public class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        using (var folderBrowserDialog = new FolderBrowserDialog())
+        string sourceFile = "Data\\input.xlsx"; // Путь к вашему входному файлу
+
+        using (var saveFileDialog = new SaveFileDialog())
         {
-            if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+            saveFileDialog.Filter = "Excel файлы (*.xlsx)|*.xlsx";
+            saveFileDialog.Title = "Сохранить файл как";
+            saveFileDialog.FileName = "output.xlsx"; // Имя по умолчанию
+
+            if (saveFileDialog.ShowDialog() == DialogResult.OK)
             {
-                string outputDirectory = folderBrowserDialog.SelectedPath;
+                string outputFile = saveFileDialog.FileName;
 
-                var models = new List<Model> { new Model { Number = 1 }, new Model { Number = 2 }, new Model { Number = 3 } };
-
-                string inputFile = "input.xlsx";
+                var models = new List<Model> { new Model { Number = 1 } };
 
                 try
                 {
                     using (var processor = new NpoiExcelFileProcessor())
                     using (var duplicator = new ExcelDuplicator(processor))
                     {
-                        duplicator.Duplicate(models, inputFile, outputDirectory);
+                        duplicator.Duplicate(models, sourceFile, outputFile);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Фаталити: {ex.Message}");
+                    Console.WriteLine($"Фатальная ошибка: {ex.Message}");
                 }
             }
             else
             {
-                Console.WriteLine("Выбор папки отменен.");
+                Console.WriteLine("Выбор файла отменен.");
             }
         }
     }
