@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using NPOI.Util;
 
 public interface IExcelFileProcessor : IDisposable
 {
@@ -163,7 +164,7 @@ public class Program
             {
                 string outputFile = saveFileDialog.FileName;
 
-                var models = new List<Model> { new Model { Number = 1 } };
+                var models = new List<Model> { new Model { Number = 1 }, new Model { Number = 2 }, new Model { Number = 3 } };
 
                 try
                 {
