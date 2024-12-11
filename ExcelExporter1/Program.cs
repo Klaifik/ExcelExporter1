@@ -1,9 +1,8 @@
-﻿using Microsoft.Win32;
+﻿using Microsoft.EntityFrameworkCore;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
@@ -49,7 +48,6 @@ public class NpoiExcelFileProcessor : IExcelFileProcessor
         {
             if (disposing)
             {
-                // Освобождение управляемых ресурсов
             }
             _disposed = true;
         }
@@ -67,34 +65,25 @@ public class NpoiExcelFileProcessor : IExcelFileProcessor
     }
 }
 
-public class ExcelProcessingException : Exception
+public class MyDbContext : DbContext
 {
-    public ExcelProcessingException(string message, Exception innerException) : base(message, innerException) { }
+    public DbSet<Model> Models { get; set; }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        optionsBuilder.UseSqlite("Data Source=FactoryNumberList.db");
+    }
 }
 
 public class Model
 {
-    public string Id { get; set; }
+    public int Id { get; set; }
+    public string Name { get; set; }
 }
 
-public class FileHandler
+public class ExcelProcessingException : Exception
 {
-    private string filePath;
-
-    public FileHandler(string path)
-    {
-        filePath = path;
-    }
-
-    public string ReadFromFile()
-    {
-        if (!File.Exists(filePath))
-        {
-            throw new FileNotFoundException("Файл не найден.", filePath);
-        }
-
-        return File.ReadAllText(filePath).Trim(); // Удаляем лишние пробелы и символы новой строки
-    }
+    public ExcelProcessingException(string message, Exception innerException) : base(message, innerException) { }
 }
 
 public class ExcelDuplicator : IDisposable
@@ -111,32 +100,27 @@ public class ExcelDuplicator : IDisposable
     {
         ValidateInput(sourceFile, outputFile);
 
-        // Путь к файлу FactoryNumberList.txt
-        string factoryNumberListPath = "Data\\FactoryNumberList.txt";
-        var fileHandler = new FileHandler(factoryNumberListPath);
-        string factoryNumber = fileHandler.ReadFromFile(); // Чтение содержимого файла
-
-        var errors = new List<string>();
-        try
+        foreach (var model in models)
         {
-            foreach (var model in models)
+            string outputFileName = $"[{model.Id}]-[{model.Name}].xlsx";
+            string outputFilePath = Path.Combine(Path.GetDirectoryName(outputFile), outputFileName);
+            _excelProcessor.DuplicateFile(sourceFile, outputFilePath);
+
+
+            using (var stream = new FileStream(outputFilePath, FileMode.Open, FileAccess.ReadWrite))
             {
-                // Использование прочитанного номера из файла для имени выходного файла
-                string outputFileName = $"[{factoryNumber}]-[{DateTime.Now:dd-MM-yyyy HH-mm-ss}]Климатическое испытание.xlsx";
-                string outputFilePath = Path.Combine(Path.GetDirectoryName(outputFile), outputFileName);
-                _excelProcessor.DuplicateFile(sourceFile, outputFilePath);
-                Console.WriteLine($"Файл '{outputFilePath}' создан.");
-            }
-        }
-        catch (Exception ex)
-        {
-            errors.Add($"Ошибка создания файла: {ex.Message}");
-        }
+                IWorkbook workbook = new XSSFWorkbook(stream);
+                ISheet sheet = workbook.GetSheetAt(0);
 
-        if (errors.Any())
-        {
-            Console.WriteLine("\nОшибка:");
-            errors.ForEach(Console.WriteLine);
+                IRow row = sheet.CreateRow(sheet.LastRowNum + 1);
+                row.CreateCell(0).SetCellValue(model.Id);
+                row.CreateCell(1).SetCellValue(model.Name);
+
+                stream.Position = 0;
+                workbook.Write(stream);
+            }
+
+            Console.WriteLine($"Файл '{outputFilePath}' создан.");
         }
     }
 
@@ -176,19 +160,36 @@ public class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        string sourceFile = "Data\\input.xlsx"; // Путь к вашему входному файлу
+        using (var dbContext = new MyDbContext())
+        {
+            dbContext.Database.EnsureCreated();
+
+            if (!dbContext.Models.Any())
+            {
+                dbContext.Models.Add(new Model { Name = "Запись 1" });
+                dbContext.Models.Add(new Model { Name = "Запись 2" });
+                dbContext.SaveChanges();
+            }
+        }
+
+        string sourceFile = "Data\\input.xlsx";
 
         using (var saveFileDialog = new SaveFileDialog())
         {
             saveFileDialog.Filter = "Excel файлы (*.xlsx)|*.xlsx";
             saveFileDialog.Title = "Сохранить файл как";
-            saveFileDialog.FileName = "output.xlsx"; // Имя по умолчанию
+            saveFileDialog.FileName = "output.xlsx";
 
             if (saveFileDialog.ShowDialog() == DialogResult.OK)
             {
                 string outputFile = saveFileDialog.FileName;
 
-                var models = new List<Model> { new Model { Id = "SDSDDS" } };
+                List<Model> models;
+
+                using (var dbContext = new MyDbContext())
+                {
+                    models = dbContext.Models.ToList();
+                }
 
                 try
                 {
